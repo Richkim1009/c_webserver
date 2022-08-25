@@ -8,37 +8,129 @@
 #include <stdbool.h>
 #include <sys/epoll.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
+#include <pthread.h>
 
 #define LISTEN_BACKLOG 50
-#define BUF_LEN 1024
 #define MAX_EVENTS 10
 
 static bool server_status = false;
-static char buf[BUF_LEN];
+
+struct socket_handler_data {
+    int client_fd;
+};
+
+// static void *accepted_socket_handler(void *arg)
+// {
+//     struct socket_handler_data data = *((struct socket_handler_data *)arg);
+//     free(arg);
+    // size_t buf_capacity = 8;
+    // size_t buf_length = 0;
+    // int line_feed_index = -1;
+    // char *buf = (char *)malloc(buf_capacity);
+    // for (;;) {
+    //     int received_length = recv(data.client_fd, buf + buf_length, buf_capacity - buf_length, 0);
+
+    //     if (received_length == -1) {
+    //         perror("recv");
+    //         exit(EXIT_FAILURE);
+    //     }
+
+    //     printf("[%d] received_length=%d\n", received_length, received_length);
+
+    //     line_feed_index = -1;
+    //     for (int i = buf_length; i < buf_length + received_length; ++i) {
+    //         if (buf[i] == '\n') {
+    //             line_feed_index = i;
+    //             break;
+    //         }
+    //     }
+    //     if (line_feed_index != -1) {
+    //         break;
+    //     }
+        
+    //     buf_length += received_length;
+    //     if (buf_length == buf_capacity) {
+    //         buf_capacity *= 2;
+    //         buf = (char *)realloc(buf, buf_capacity);
+    //     }
+    //     printf("received_length: %d\n", received_length);
+    // }
+
+    // buf[line_feed_index - 1] = '\0';
+    // printf("[%d] %s\n", data.client_fd, buf);
+    // char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, World!";
+    // if (send(data.client_fd, http_response, strlen(http_response), 0) == -1) {
+    //     perror("send");
+    // }
+    
+//     close(data.client_fd);
+
+//     return  NULL;
+// }
 
 static void setnonblocking(int sock)
 {
-    int flag = fcntl(sock,  F_GETFL, 0);
+    int flag = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flag | O_NONBLOCK);
 }
 
-static int do_use_fd(int server_fd)
+static void do_use_fd(int client_fd)
 {
-    int recv_len = read(server_fd, buf, BUF_LEN);
-    buf[recv_len] = '\0';
-    printf("%s", buf);
-    return recv_len;
+    printf("client fd: %d\n", client_fd);
+    size_t buf_capacity = 1024;
+    size_t buf_length = 0;
+    int line_feed_index = -1;
+    int recv_len = 0;
+    char *buf = (char *)malloc(buf_capacity);
+    for (;;) {
+        recv_len = recv(client_fd, buf + buf_length, buf_capacity - buf_length, 0);
+
+        if (recv_len == -1) {
+            perror("recv");
+            exit(EXIT_FAILURE);
+        }
+
+        line_feed_index = -1;
+        for (int i = buf_length; i < buf_length + recv_len; ++i) {
+            if (buf[i] == '\n') {
+                line_feed_index = i;
+                break;
+            }
+        }
+        if (line_feed_index != -1) {
+            break;
+        }
+        
+        buf_length += recv_len;
+        if (buf_length == buf_capacity) {
+            buf_capacity *= 2;
+            buf = (char *)realloc(buf, buf_capacity);
+        }
+    }
+
+    buf[line_feed_index - 1] = '\0';
+    printf("[%d] %s\n", client_fd, buf);
+    char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, World!!";
+    if (send(client_fd, http_response, strlen(http_response), 0) == -1) {
+        perror("send");
+    }
 }
 
 int main(int argc, char *argv[])
 {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    int client_fd, epollfd, nfds, n;
+    int client_fd;
+    int epollfd, nfds, n;
     int port_number = 8080;
     if (server_fd == -1){
         perror("open");
         exit(EXIT_FAILURE);
     }
+
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) == -1)
+        perror("setsockopt(SO_REUSEADDR) failed");
+
     struct sockaddr_in saddr;
     memset(&saddr, 0, sizeof(struct sockaddr_in));
     saddr.sin_family = AF_INET;
@@ -64,7 +156,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    ev.events = EPOLLIN;
+    ev.events = EPOLLET ;
     ev.data.fd = server_fd;
 
     if (epoll_ctl(epollfd,EPOLL_CTL_ADD, server_fd, &ev)) {
@@ -74,39 +166,56 @@ int main(int argc, char *argv[])
 
     while (!server_status) {
         nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
+        printf("nfds: %d\n", nfds);
         if (nfds == -1) {
-            perror("epoll_pwait");
+            perror("epoll_wait");
             exit(EXIT_FAILURE);
         }
 
         for (n = 0; n < nfds; ++n) {
             if (events[n].data.fd == server_fd) {
                 client_fd = accept(server_fd, (struct sockaddr *)&caddr, &caddr_len);
+                printf("client: %d\n", client_fd);
 
                 if (client_fd == -1) {
                     perror("accept");
                     exit(EXIT_FAILURE);
                 }
-                setnonblocking(client_fd);
                 ev.events = EPOLLIN | EPOLLET;
                 ev.data.fd = client_fd;
+                setnonblocking(client_fd);
                 if (epoll_ctl(epollfd, EPOLL_CTL_ADD, client_fd, &ev) == -1)  {
                     perror("epoll_ctl: client_fd");
                     exit(EXIT_FAILURE);
                 }
-                printf("connect client: %d\n", client_fd);
             } else {
-                int close_epoll = do_use_fd(events[n].data.fd);
-                if (!close_epoll) {
-                    epoll_ctl(epollfd, EPOLL_CTL_DEL, events[n].data.fd, NULL);
-                    close(events[n].data.fd);
-                    printf("closed client: %d\n", events[n].data.fd);
-                }
+                printf("else\n");
+                do_use_fd(events[n].data.fd);
             }
         }
     }
+
+    // while (!server_status) {
+    //     client_fd = accept(server_fd, (struct sockaddr *)&caddr, &caddr_len);
+
+    //     if (client_fd == -1) {
+    //         perror("accept");
+    //         exit(EXIT_FAILURE);
+    //     }
+        
+    //     struct socket_handler_data *data = malloc(sizeof(struct socket_handler_data));
+    //     data->client_fd = client_fd;
+
+    //     pthread_t thread;
+    //     int pthread_result = pthread_create(&thread, NULL, accepted_socket_handler, data);
+
+    //     if (pthread_result == -1) {
+    //         perror("pthread_create");
+    //         exit(EXIT_FAILURE);
+    //     }
+    // }
     close(server_fd);
-    close(epollfd);
+    // close(epollfd);
    
     return 0;
 }
