@@ -11,211 +11,94 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 
-#define LISTEN_BACKLOG 50
-#define MAX_EVENTS 10
-
-static bool server_status = false;
+#define BACKLOG 32
+#define BUF_LEN 1024
+static bool server_stopped = false;
 
 struct socket_handler_data {
-    int client_fd;
+    int accepted_socket_fd;
 };
 
-// static void *accepted_socket_handler(void *arg)
-// {
-//     struct socket_handler_data data = *((struct socket_handler_data *)arg);
-//     free(arg);
-    // size_t buf_capacity = 8;
-    // size_t buf_length = 0;
-    // int line_feed_index = -1;
-    // char *buf = (char *)malloc(buf_capacity);
-    // for (;;) {
-    //     int received_length = recv(data.client_fd, buf + buf_length, buf_capacity - buf_length, 0);
-
-    //     if (received_length == -1) {
-    //         perror("recv");
-    //         exit(EXIT_FAILURE);
-    //     }
-
-    //     printf("[%d] received_length=%d\n", received_length, received_length);
-
-    //     line_feed_index = -1;
-    //     for (int i = buf_length; i < buf_length + received_length; ++i) {
-    //         if (buf[i] == '\n') {
-    //             line_feed_index = i;
-    //             break;
-    //         }
-    //     }
-    //     if (line_feed_index != -1) {
-    //         break;
-    //     }
-        
-    //     buf_length += received_length;
-    //     if (buf_length == buf_capacity) {
-    //         buf_capacity *= 2;
-    //         buf = (char *)realloc(buf, buf_capacity);
-    //     }
-    //     printf("received_length: %d\n", received_length);
-    // }
-
-    // buf[line_feed_index - 1] = '\0';
-    // printf("[%d] %s\n", data.client_fd, buf);
-    // char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, World!";
-    // if (send(data.client_fd, http_response, strlen(http_response), 0) == -1) {
-    //     perror("send");
-    // }
-    
-//     close(data.client_fd);
-
-//     return  NULL;
-// }
-
-static void setnonblocking(int sock)
+static void *accepted_socket_handler(void *arg)
 {
-    int flag = fcntl(sock, F_GETFL, 0);
-    fcntl(sock, F_SETFL, flag | O_NONBLOCK);
+    struct socket_handler_data data = *(struct socket_handler_data *)arg;
+
+    char buf[BUF_LEN];
+
+    int received_length = recv(data.accepted_socket_fd, buf, BUF_LEN, 0);
+    if (received_length == -1) {
+            perror("recv()");
+            exit(1);
+        }
+    buf[received_length] = '\0';
+    printf("[%d] %s\n", data.accepted_socket_fd, buf);
+
+    close(data.accepted_socket_fd);
+
+    return NULL;
 }
 
-static void do_use_fd(int client_fd)
+int main(int argc, char **argv)
 {
-    printf("client fd: %d\n", client_fd);
-    size_t buf_capacity = 1024;
-    size_t buf_length = 0;
-    int line_feed_index = -1;
-    int recv_len = 0;
-    char *buf = (char *)malloc(buf_capacity);
-    for (;;) {
-        recv_len = recv(client_fd, buf + buf_length, buf_capacity - buf_length, 0);
+    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 
-        if (recv_len == -1) {
-            perror("recv");
-            exit(EXIT_FAILURE);
-        }
-
-        line_feed_index = -1;
-        for (int i = buf_length; i < buf_length + recv_len; ++i) {
-            if (buf[i] == '\n') {
-                line_feed_index = i;
-                break;
-            }
-        }
-        if (line_feed_index != -1) {
-            break;
-        }
-        
-        buf_length += recv_len;
-        if (buf_length == buf_capacity) {
-            buf_capacity *= 2;
-            buf = (char *)realloc(buf, buf_capacity);
-        }
+    if (socket_fd == -1) {
+        perror("socket");
+        exit(1);
     }
 
-    buf[line_feed_index - 1] = '\0';
-    printf("[%d] %s\n", client_fd, buf);
-    char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, World!!";
-    if (send(client_fd, http_response, strlen(http_response), 0) == -1) {
-        perror("send");
-    }
-}
-
-int main(int argc, char *argv[])
-{
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    int client_fd;
-    int epollfd, nfds, n;
-    int port_number = 8080;
-    if (server_fd == -1){
-        perror("open");
-        exit(EXIT_FAILURE);
+    int so_reuseaddr_enable = 1;
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &so_reuseaddr_enable, sizeof(int)) == -1) {
+        perror("setsocketopt()");
     }
 
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) == -1)
-        perror("setsockopt(SO_REUSEADDR) failed");
+    struct sockaddr_in bind_addr;
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_port = htons(8080);
+    bind_addr.sin_addr.s_addr = 0;
 
-    struct sockaddr_in saddr;
-    memset(&saddr, 0, sizeof(struct sockaddr_in));
-    saddr.sin_family = AF_INET;
-    saddr.sin_addr.s_addr = INADDR_ANY;
-    saddr.sin_port = htons(port_number);
-
-    if (bind(server_fd, (struct sockaddr *)&saddr, sizeof(saddr)) == -1) {
+    int bind_result = bind(socket_fd, (struct sockaddr *)&bind_addr, sizeof bind_addr);
+    if (bind_result == -1) {
         perror("bind");
-        exit(EXIT_FAILURE);
+        exit(1);
     }
 
-    if (listen(server_fd, LISTEN_BACKLOG) == -1) {
-        perror("listen");
-        exit(EXIT_FAILURE);
+    int listen_result = listen(socket_fd, BACKLOG);
+
+    if (listen_result == -1) {
+        perror("listen()");
+        exit(1);
     }
 
-    struct sockaddr_in caddr;
-    socklen_t caddr_len = sizeof(caddr);
-    struct epoll_event ev, events[MAX_EVENTS];
-    epollfd = epoll_create1(0);
-    if (epollfd == -1) {
-        perror("epoll_create1");
-        exit(EXIT_FAILURE);
-    }
+    struct sockaddr_in accepted_socket_addr;
+    socklen_t accepted_socket_len = sizeof(accepted_socket_addr);
 
-    ev.events = EPOLLET ;
-    ev.data.fd = server_fd;
+    int count = 0;
 
-    if (epoll_ctl(epollfd,EPOLL_CTL_ADD, server_fd, &ev)) {
-        perror("epoll_ctl: client_fd");
-        exit(EXIT_FAILURE);
-    }
+    while (!server_stopped) {
+        printf("count: %d\n", count++);
+        int accepted_socket_fd = accept(socket_fd, (struct sockaddr *)&accepted_socket_addr, &accepted_socket_len);
 
-    while (!server_status) {
-        nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
-        printf("nfds: %d\n", nfds);
-        if (nfds == -1) {
-            perror("epoll_wait");
-            exit(EXIT_FAILURE);
+        if (accepted_socket_fd == -1) {
+            perror("accept()");
+            exit(1);
         }
 
-        for (n = 0; n < nfds; ++n) {
-            if (events[n].data.fd == server_fd) {
-                client_fd = accept(server_fd, (struct sockaddr *)&caddr, &caddr_len);
-                printf("client: %d\n", client_fd);
+        printf("accepted: return=%d\n", accepted_socket_fd);
 
-                if (client_fd == -1) {
-                    perror("accept");
-                    exit(EXIT_FAILURE);
-                }
-                ev.events = EPOLLIN | EPOLLET;
-                ev.data.fd = client_fd;
-                setnonblocking(client_fd);
-                if (epoll_ctl(epollfd, EPOLL_CTL_ADD, client_fd, &ev) == -1)  {
-                    perror("epoll_ctl: client_fd");
-                    exit(EXIT_FAILURE);
-                }
-            } else {
-                printf("else\n");
-                do_use_fd(events[n].data.fd);
-            }
+        struct socket_handler_data data;
+        data.accepted_socket_fd = accepted_socket_fd;
+
+        pthread_t thread;
+
+        int pthread_result = pthread_create(&thread, NULL, accepted_socket_handler, &data);
+
+        if (pthread_result != 0) {
+            perror("pthread_create()");
+            exit(1);
         }
+
     }
 
-    // while (!server_status) {
-    //     client_fd = accept(server_fd, (struct sockaddr *)&caddr, &caddr_len);
-
-    //     if (client_fd == -1) {
-    //         perror("accept");
-    //         exit(EXIT_FAILURE);
-    //     }
-        
-    //     struct socket_handler_data *data = malloc(sizeof(struct socket_handler_data));
-    //     data->client_fd = client_fd;
-
-    //     pthread_t thread;
-    //     int pthread_result = pthread_create(&thread, NULL, accepted_socket_handler, data);
-
-    //     if (pthread_result == -1) {
-    //         perror("pthread_create");
-    //         exit(EXIT_FAILURE);
-    //     }
-    // }
-    close(server_fd);
-    // close(epollfd);
-   
     return 0;
 }
