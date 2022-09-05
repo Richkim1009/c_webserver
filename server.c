@@ -10,62 +10,95 @@
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <stdarg.h>
 
 #define BACKLOG 32
-#define INIT_BUF_CAPACITY 2048
+#define INIT_LINE_BUF_CAPACITY 64
+#define RECV_BUF_CAPACITY 2048
 static bool server_stopped = false;
 
 struct socket_handler_data {
-    int accepted_socket_fd;
+    int fd;
 };
+
+void log_debug(const char *format, ...)
+{
+    va_list ap;
+    va_start(ap, format);
+    vprintf(format, ap);
+    va_end(ap);
+}
 
 static void *accepted_socket_handler(void *arg)
 {
     struct socket_handler_data data = *(struct socket_handler_data *)arg;
     free(arg);
+    int fd = data.fd;
+    log_debug("[%d] thread started: fn=accepted_socket_handler\n", fd);
+    char recv_buf[RECV_BUF_CAPACITY];
+    int recv_pos = 0;
+    int recv_len;
 
-    int buf_capacity = INIT_BUF_CAPACITY;
-    char *buf = malloc(buf_capacity);
-    int line_feed_index = -1;
-    int buf_length = 0;
+    int line_buf_capacity = INIT_LINE_BUF_CAPACITY;
+    char *line_buf = malloc(line_buf_capacity);
+    int line_buf_len = 0;
 
     while (1) {
-        int received_length = recv(data.accepted_socket_fd, buf + buf_length, buf_capacity - buf_length, 0);
-        if (received_length == -1) {
+        recv_len = recv(fd, recv_buf, RECV_BUF_CAPACITY, 0);
+
+        if (recv_len == -1) {
                 perror("recv()");
                 exit(1);
         }
         
-        line_feed_index = -1;
-        for (int i = buf_length; i < buf_length + received_length; ++i) {
-            if (buf[i] == '\n') {
+        int line_feed_index = -1;
+        for (int i = 0; i < recv_len; ++i) {
+            if (recv_buf[i] == '\n') {
                 line_feed_index = i;
                 break;
             }
         }
 
-        if (line_feed_index != -1) {
+        if (line_feed_index == -1) {
+            while (line_buf_len + recv_len > line_buf_capacity) {
+                line_buf_capacity *= 2;
+                line_buf = realloc(line_buf, line_buf_capacity);
+            }
+            memcpy(line_buf + line_buf_len, recv_buf, RECV_BUF_CAPACITY);
+            line_buf_len += recv_len;
+
+            recv_pos = 0;
+        } else {
+            while (line_buf_len + line_feed_index + 1 > line_buf_capacity) {
+                line_buf_capacity *= 2;
+                line_buf = realloc(line_buf, line_buf_capacity);
+            }
+            memcpy(line_buf + line_buf_len, recv_buf, line_feed_index + 1);
+            line_buf[line_buf_len + line_feed_index + 1] = '\0';
+            line_buf_len += line_feed_index + 1;
+            recv_pos = line_feed_index + 1;
             break;
         }
 
-        buf_length += received_length;
-        if (buf_length >= buf_capacity) {
-            buf_capacity *= 2;
-            buf = realloc(buf, buf_capacity);
-        }
     }
+    
+    char *request_line = line_buf;
+    int request_line_len = line_buf_len;
 
     // CR position
-    buf[line_feed_index - 1] = '\0';
+    request_line[request_line_len - 1] = '\0';
 
+    log_debug("[%d] first line: %s\n", fd, request_line);
+
+    log_debug("[%d] %s\n", fd, request_line);
     char *method;
     char *request_target;
     char *http_version;
 
-    char *first_space_ptr = strchr(buf, ' ');
+    char *first_space_ptr = strchr(request_line, ' ');
     *first_space_ptr = '\0';
 
-    method = strdup(buf);
+    method = strdup(request_line);
 
     char *second_space_ptr = strchr(first_space_ptr + 1, ' ');
     *second_space_ptr = '\0';
@@ -74,13 +107,61 @@ static void *accepted_socket_handler(void *arg)
 
     http_version = strdup(second_space_ptr + 1);
 
-    printf("[%d] %s\n", data.accepted_socket_fd, buf);
+    log_debug("[%d]\n\tMethod: %s\n\tRequest_target: %s\n\tHTTP version: %s\n", fd, method, request_target, http_version);
 
-    printf("[%d]\n\tMethod: %s\n\tRequest_target: %s\n\tHTTP version: %s\n", data.accepted_socket_fd, method, request_target, http_version);
+
+
+
+    line_buf_capacity = INIT_LINE_BUF_CAPACITY;
+    line_buf = malloc(line_buf_capacity);
+    line_buf_len = 0;
+
+    while (1) {
+        if (recv_pos == recv_len) {
+            recv_pos = 0;
+            int recv_len = recv(fd, recv_buf, RECV_BUF_CAPACITY, 0);
+
+            if (recv_len == -1) {
+                    perror("recv()");
+                    exit(1);
+            }
+        }
+        
+        int line_feed_index = -1;
+        for (int i = recv_pos; i < recv_len; ++i) {
+            if (recv_buf[i] == '\n') {
+                line_feed_index = i;
+                break;
+            }
+        }
+
+        if (line_feed_index == -1) {
+            while (line_buf_len + (recv_len - recv_pos) > line_buf_capacity) {
+                line_buf_capacity *= 2;
+                line_buf = realloc(line_buf, line_buf_capacity);
+            }
+            memcpy(line_buf + line_buf_len, recv_buf + recv_pos, recv_len - recv_pos);
+            line_buf_len += (recv_len - recv_pos);
+        } else {
+            while (line_buf_len + (line_feed_index + 1 - recv_pos) > line_buf_capacity) {
+                line_buf_capacity *= 2;
+                line_buf = realloc(line_buf, line_buf_capacity);
+            }
+            memcpy(line_buf + line_buf_len, recv_buf, (line_feed_index + 1 - recv_pos));
+            line_buf[line_buf_len + (line_feed_index + 1 - recv_pos)] = '\0';
+            line_buf_len += (line_feed_index + 1 - recv_pos);
+            break;
+        }
+
+    }
+    
+
+    log_debug("[%d] second line: %s\n", fd, line_buf);
+
     char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, World!";
-    send(data.accepted_socket_fd, http_response, strlen(http_response), 0);
+    send(fd, http_response, strlen(http_response), 0);
 
-    close(data.accepted_socket_fd);
+    close(fd);
 
     return NULL;
 }
@@ -128,10 +209,10 @@ int main(int argc, char **argv)
             exit(1);
         }
 
-        printf("accepted: return=%d\n", accepted_socket_fd);
+        log_debug("accepted: fd=%d, address=%s:%d\n", accepted_socket_fd, inet_ntoa(accepted_socket_addr.sin_addr), accepted_socket_addr.sin_port);
 
         struct socket_handler_data *data = malloc(sizeof(struct socket_handler_data));
-        data->accepted_socket_fd = accepted_socket_fd;
+        data->fd = accepted_socket_fd;
 
         pthread_t thread;
 
@@ -141,7 +222,6 @@ int main(int argc, char **argv)
             perror("pthread_create()");
             exit(1);
         }
-
     }
 
     return 0;
