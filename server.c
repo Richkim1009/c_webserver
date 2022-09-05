@@ -58,8 +58,25 @@ static void *accepted_socket_handler(void *arg)
     // CR position
     buf[line_feed_index - 1] = '\0';
 
+    char *method;
+    char *request_target;
+    char *http_version;
+
+    char *first_space_ptr = strchr(buf, ' ');
+    *first_space_ptr = '\0';
+
+    method = strdup(buf);
+
+    char *second_space_ptr = strchr(first_space_ptr + 1, ' ');
+    *second_space_ptr = '\0';
+
+    request_target = strdup(first_space_ptr + 1);
+
+    http_version = strdup(second_space_ptr + 1);
+
     printf("[%d] %s\n", data.accepted_socket_fd, buf);
 
+    printf("[%d]\n\tMethod: %s\n\tRequest_target: %s\n\tHTTP version: %s\n", data.accepted_socket_fd, method, request_target, http_version);
     char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, World!";
     send(data.accepted_socket_fd, http_response, strlen(http_response), 0);
 
