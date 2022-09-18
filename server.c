@@ -230,12 +230,12 @@ static void *handle_client(void *void_arg)
     log_debug("Given HTTP version: %d\n", version);
 
     char *first_space_ptr = strchr(request_line, ' ');
-    *first_space_ptr = '\0';
+    char *last_space_ptr = strrchr(request_line, ' ');
 
-    char *second_space_ptr = strchr(first_space_ptr + 1, ' ');
-    *second_space_ptr = '\0';
+    request_target = strndup(first_space_ptr + 1, last_space_ptr - first_space_ptr - 1);
 
-    request_target = strdup(first_space_ptr + 1);
+    log_debug_handle_client_header(args);
+    log_debug("Given HTTP request target: %s\n", request_target);
     /*
     http_version = strdup(second_space_ptr + 1);
 
