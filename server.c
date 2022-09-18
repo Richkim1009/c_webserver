@@ -242,14 +242,30 @@ static void *handle_client(void *void_arg)
     log_debug_handle_client_header(args);
     log_debug("[%d]\n\tMethod: %d\n\tRequest_target: %s\n\tHTTP version: %s\n", sock, method, request_target, http_version);
     */
+    int count = 0;
     while (1) {
         char *header_line = recv_line(&recv_buffer);
         remove_crlf(header_line);
         if (!strlen(header_line)) {
             break;
         }
+
+        char *header_field_name;
+        char *header_field_value;
+
+        char *colon_ptr = strchr(header_line, ':');
+        header_field_name = strndup(header_line, colon_ptr - header_line);
+
+        char *ptr = colon_ptr + 1;
+        for (ptr = colon_ptr + 1; *ptr == ' ' || *ptr == '\t'; ++ptr) {}
+
+        header_field_value = strdup(ptr);
+
         log_debug_handle_client_header(args);
-        log_debug("[%d] first header: %s\n", sock, header_line);
+        log_debug("%d Header field name: %s\n", count, header_field_name);
+        log_debug("%d Header field value: %s\n", count, header_field_value);
+        
+        ++count;
     }
 
     char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, World!";
@@ -305,8 +321,6 @@ int main(int argc, char **argv)
             perror("accept()");
             exit(1);
         }
-
-        log_debug("accepted: fd=%d, address=%s:%d\n", sock, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
         struct HandleClientArgrs *args = malloc(sizeof(struct HandleClientArgrs));
         args->sock = sock;
