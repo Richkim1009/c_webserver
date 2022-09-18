@@ -44,6 +44,12 @@ enum HttpMethod {
     HTTP_METHOD_PATCH,
 };
 
+enum HttpVersion {
+    HTTP_VERSION_0_9 = 1,
+    HTTP_VERSION_1_0,
+    HTTP_VERSION_1_1,
+};
+
 char *recv_str_until(struct RecvBuffer *recv_buffer, char c)
 {
     int str_buf_capacity = INIT_STR_BUF_CAPACITY;
@@ -124,6 +130,18 @@ bool str_starts_with(char *s, char *prefix)
     return strncmp(s, prefix, strlen(prefix)) == 0;
 }
 
+bool str_ends_with(char *s, char *suffix)
+{
+    int s_len = strlen(s);
+    int suffix_len = strlen(suffix);
+
+    if (s_len < suffix_len) {
+        return false;
+    }
+
+    return strncmp(s + s_len - suffix_len, suffix + 1, suffix_len - 1) == 0;
+}
+
 void log_debug_handle_client_header(struct HandleClientArgrs *args)
 {
     log_debug("[%d] [%s:%d] ", args->sock, 
@@ -156,7 +174,7 @@ static void *handle_client(void *void_arg)
     log_debug("[%d] %s\n", sock, request_line);
     enum HttpMethod method;
     char *request_target;
-    char *http_version;
+    enum HttpVersion version;
 
     struct MethodTableEntry {
         char *request_line_prefix;
@@ -191,8 +209,25 @@ static void *handle_client(void *void_arg)
         goto finally;
     }
 
+    printf("test %s\n", request_line);
+
+    if (str_ends_with(request_line, " HTTP/0.9")) {
+        version = HTTP_VERSION_0_9;
+    } else if (str_ends_with(request_line, " HTTP/1.0")) {
+        version = HTTP_VERSION_1_0;
+    } else if (str_ends_with(request_line, " HTTP/1.1")) {
+        version = HTTP_VERSION_1_1;
+    } else {
+        log_debug_handle_client_header(args);
+        log_debug("Uknown HTTP version\n");
+        goto finally;
+    }
+
     log_debug_handle_client_header(args);
-    log_debug("Given method: %d\n", method);
+    log_debug("Given HTTP method: %d\n", method);
+
+    log_debug_handle_client_header(args);
+    log_debug("Given HTTP version: %d\n", version);
 
     char *first_space_ptr = strchr(request_line, ' ');
     *first_space_ptr = '\0';
@@ -201,12 +236,12 @@ static void *handle_client(void *void_arg)
     *second_space_ptr = '\0';
 
     request_target = strdup(first_space_ptr + 1);
-
+    /*
     http_version = strdup(second_space_ptr + 1);
 
     log_debug_handle_client_header(args);
     log_debug("[%d]\n\tMethod: %d\n\tRequest_target: %s\n\tHTTP version: %s\n", sock, method, request_target, http_version);
-    
+    */
     while (1) {
         char *header_line = recv_line(&recv_buffer);
         remove_crlf(header_line);
