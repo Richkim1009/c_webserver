@@ -12,6 +12,8 @@
 #include <pthread.h>
 #include <stdarg.h>
 
+#define ARRAY_SIZE(arr) sizeof(arr) / sizeof(arr[0])
+
 #define BACKLOG 32
 #define INIT_STR_BUF_CAPACITY 64
 #define RECV_BUF_CAPACITY 2048
@@ -168,7 +170,7 @@ static void *handle_client(void *arg)
 
     bool found = false;
 
-    for (int i = 0; i < 9; ++i) {
+    for (int i = 0; i < ARRAY_SIZE(method_table); ++i) {
         if (str_starts_with(request_line, method_table[i].request_line_prefix)) {
             method = method_table[i].method;
             found = true;
@@ -191,7 +193,7 @@ static void *handle_client(void *arg)
 
     http_version = strdup(second_space_ptr + 1);
 
-    log_debug("[%d]\n\tMethod: %s\n\tRequest_target: %s\n\tHTTP version: %s\n", fd, method, request_target, http_version);
+    log_debug("[%d]\n\tMethod: %d\n\tRequest_target: %s\n\tHTTP version: %s\n", fd, method, request_target, http_version);
     
     while (1) {
         char *header_line = recv_line(&recv_buffer);
