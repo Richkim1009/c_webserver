@@ -58,7 +58,7 @@ struct HttpRequestHeaderField {
 const int initial_header_fields_capacity = 16;
 
 struct HttpRequestHeaderFields {
-    struct HttpRequestHeaderField *fields;
+    struct HttpRequestHeaderField *elements;
     int len;
     int cap;
 };
@@ -162,7 +162,7 @@ bool str_ends_with(char *s, char *suffix)
         return false;
     }
 
-    return strncmp(s + s_len - suffix_len, suffix + 1, suffix_len - 1) == 0;
+    return strncmp(s + s_len - suffix_len + 1, suffix + 1, suffix_len - 1) == 0;
 }
 
 void log_debug_handle_client_header(struct HandleClientArgrs *args)
@@ -233,8 +233,6 @@ static void *handle_client(void *void_arg)
 
     request.method = method;
 
-    printf("test %s\n", request_line);
-
     if (str_ends_with(request_line, " HTTP/0.9")) {
         version = HTTP_VERSION_0_9;
     } else if (str_ends_with(request_line, " HTTP/1.0")) {
@@ -267,7 +265,7 @@ static void *handle_client(void *void_arg)
     struct HttpRequestHeaderFields fields;
     fields.len = 0;
     fields.cap = initial_header_fields_capacity;
-    fields.fields = malloc(fields.cap * sizeof(struct HttpRequestHeaderField));
+    fields.elements = malloc(fields.cap * sizeof(struct HttpRequestHeaderField));
 
     int pos = 0;
     while (1) {
@@ -290,11 +288,11 @@ static void *handle_client(void *void_arg)
 
         if (pos == fields.cap) {
             fields.cap *= 2;
-            fields.fields = realloc(fields.fields, fields.cap * sizeof(struct HttpRequestHeaderField));
+            fields.elements = realloc(fields.elements, fields.cap * sizeof(struct HttpRequestHeaderField));
         }
 
-        fields.fields[pos].name = header_field_name;
-        fields.fields[pos].value = header_field_value;
+        fields.elements[pos].name = header_field_name;
+        fields.elements[pos].value = header_field_value;
 
         log_debug_handle_client_header(args);
         log_debug("%d Header field name: %s\n", pos, header_field_name);
@@ -305,8 +303,56 @@ static void *handle_client(void *void_arg)
 
     request.fields = fields;
 
-    char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, World!";
-    send(sock, http_response, strlen(http_response), 0);
+    FILE *fp = fopen("index.html", "r");
+
+    if (fp == NULL) {
+        perror("fopen()");
+        goto finally;
+    }
+
+    if(fseek(fp, 0, SEEK_END) == -1) {
+        perror("fseek()");
+        fclose(fp);
+        goto finally;
+    }
+
+    long file_size = ftell(fp);
+
+    if (file_size == -1) {
+        perror("ftell()");
+        fclose(fp);
+        goto finally;
+    }
+
+    if (fseek(fp, 0, SEEK_SET)) {
+        perror("fseek()");
+        fclose(fp);
+        goto finally;
+    }
+
+    char *file_content = malloc(file_size);
+    size_t n = fread(file_content, 1, file_size, fp);
+
+    if (n != file_size) {
+        log_debug_handle_client_header(args);
+        log_debug("Error while reading the file: n != file_size\n");
+        fclose(fp);
+        goto finally;
+    }
+
+    fclose(fp);
+    
+    char *http_response_first = "HTTP/1.1 200 OK\r\nContent-type: text/html\r\n\r\n";
+
+    send(sock, http_response_first, strlen(http_response_first), 0);
+
+    send(sock, file_content, file_size, 0);
+
+    // char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, World!";
+    // int send_result = send(sock, http_response, strlen(http_response), 0);
+    // if (send_result == -1) {
+    //     perror("send()");
+    // }
 
     
 finally:
