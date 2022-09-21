@@ -1,6 +1,7 @@
 Makefile
 /server
 *.jpg
+.idea
 CMakeLists.txt.user
 CMakeCache.txt
 CMakeFiles
