@@ -1,3 +1,95 @@
 Makefile
 /server
 *.jpg
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+Skip to content
+Search or jump to…
+Pull requests
+Issues
+Marketplace
+Explore
+
+@Richkim1009
+github
+/
+gitignore
+Public
+Code
+Pull requests
+320
+Actions
+Security
+Insights
+gitignore/C.gitignore
+@chaosdefinition
+chaosdefinition Update C.gitignore
+…
+Latest commit f76d089 on 1 Nov 2016
+ History
+ 9 contributors
+@rye@Leandros@snisarg@dybekm@eugpermar@dashed@starrify@chaosdefinition@arsenm
+52 lines (44 sloc)  430 Bytes
+
+# Prerequisites
+*.d
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Linker output
+*.ilk
+*.map
+*.exp
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf

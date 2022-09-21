@@ -1,12 +1,10 @@
 #include <stdio.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netinet/ip.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdbool.h>
-#include <sys/epoll.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <pthread.h>
@@ -176,7 +174,7 @@ static void *handle_client(void *void_arg)
     request.fields = fields;
 
     if (strcmp(request.target, "/") == 0) {
-        FILE *fp = fopen("contents/index.html", "r");
+        FILE *fp = fopen("/home/polaris/project/c_webserver/contents/index.html", "r");
 
         if (fp == NULL) {
             perror("fopen()");
@@ -217,14 +215,25 @@ static void *handle_client(void *void_arg)
         
         char *http_response_first = "HTTP/1.1 200 OK\r\nContent-type: text/html\r\n\r\n";
 
-        send(sock, http_response_first, strlen(http_response_first), 0);
+        struct SendAllResult send_all_result;
+        send_all_result = send_all(sock, http_response_first, strlen(http_response_first), 0);
 
-        send(sock, file_content, file_size, 0);
+        if (!send_all_result.success) {
+            perror("send_all()");
+            goto finally;
+        }
+
+        send_all_result = send_all(sock, file_content, file_size, 0);
+
+        if (!send_all_result.success) {
+            perror("send_all()");
+            goto finally;
+        }
 
     } else if (strcmp(request.target, "/taeyeon.jpg") == 0) {
-        FILE *fp = fopen("contents/taeyeon.jpg", "r");
+        FILE *fp = fopen("/home/polaris/project/c_webserver/contents/taeyeon.jpg", "r");
         if (fp == NULL) {
-            perror("fopen()");
+            perror("fopen()2");
             goto finally;
         }
 
@@ -262,10 +271,20 @@ static void *handle_client(void *void_arg)
         
         char *http_response_first = "HTTP/1.1 200 OK\r\nContent-type: image/jpeg\r\n\r\n";
 
-        send(sock, http_response_first, strlen(http_response_first), 0);
-        
-        size_t num_sent = send(sock, file_content, file_size, 0);
-        log_debug("taeyeon.jpg num_sent=%d\n", num_sent);
+        struct SendAllResult send_all_result;
+        send_all_result = send_all(sock, http_response_first, strlen(http_response_first), 0);
+
+        if (!send_all_result.success) {
+            perror("send_all()");
+            goto finally;
+        }
+
+        send_all_result = send_all(sock, file_content, file_size, 0);
+
+        if (!send_all_result.success) {
+            perror("send_all()");
+            goto finally;
+        }
     }
 
     

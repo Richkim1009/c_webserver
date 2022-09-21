@@ -61,3 +61,27 @@ char *recv_line(struct RecvBuffer *recv_buffer)
 {
     return recv_str_until(recv_buffer ,'\n');
 }
+
+struct SendAllResult send_all(int sockfd, const void *buf, size_t len, int flags)
+{
+    size_t pos = 0;
+    char *buffer = buf;
+
+    while (pos < len) {
+        size_t remaining = len - pos;
+        ssize_t n = send(sockfd, buffer + pos, remaining < 1024 ? remaining : 1024, flags);
+        if (n == -1) {
+            return (struct SendAllResult) {
+                .n = pos,
+                .success = false
+            };
+        }
+
+        pos += n;
+    }
+
+    return (struct SendAllResult) {
+        .n = pos,
+        .success = true,
+    };
+}
