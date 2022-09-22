@@ -37,8 +37,8 @@ void log_debug(const char *format, ...)
 
 void log_debug_handle_client_header(struct HandleClientArgrs *args)
 {
-    log_debug("[%d] [%s:%d] ", args->sock, 
-        inet_ntoa(args->client_addr.sin_addr), ntohs(args->client_addr.sin_port));
+    log_debug("[%d] [%s:%d] ", args->sock,
+              inet_ntoa(args->client_addr.sin_addr), ntohs(args->client_addr.sin_port));
 }
 
 static void *handle_client(void *void_arg)
@@ -47,15 +47,15 @@ static void *handle_client(void *void_arg)
     int sock = args->sock;
     log_debug_handle_client_header(args);
     log_debug("[%d] thread started: fn=handle_client\n", sock);
-    
+
     struct RecvBuffer recv_buffer = {
-        .fd = sock,
-        .buf = malloc(recv_buf_capacity),
-        .pos = 0,
-        .len = 0,
-        .cap = recv_buf_capacity,
+            .fd = sock,
+            .buf = malloc(recv_buf_capacity),
+            .pos = 0,
+            .len = 0,
+            .cap = recv_buf_capacity,
     };
-    
+
     char *request_line = recv_line(&recv_buffer);
     remove_crlf(request_line);
 
@@ -74,15 +74,15 @@ static void *handle_client(void *void_arg)
     };
 
     struct MethodTableEntry method_table[] = {
-        { "GET", HTTP_METHOD_GET },
-        { "HEAD", HTTP_METHOD_HEAD },
-        { "POST", HTTP_METHOD_POST },
-        { "PUT", HTTP_METHOD_PUT },
-        { "DELETE", HTTP_METHOD_DELETE },
-        { "TRACE", HTTP_METHOD_TRACE },
-        { "OPTIONS", HTTP_METHOD_OPTIONS },
-        { "CONNECT", HTTP_METHOD_CONNECT },
-        { "PATCH", HTTP_METHOD_PATCH }
+            { "GET", HTTP_METHOD_GET },
+            { "HEAD", HTTP_METHOD_HEAD },
+            { "POST", HTTP_METHOD_POST },
+            { "PUT", HTTP_METHOD_PUT },
+            { "DELETE", HTTP_METHOD_DELETE },
+            { "TRACE", HTTP_METHOD_TRACE },
+            { "OPTIONS", HTTP_METHOD_OPTIONS },
+            { "CONNECT", HTTP_METHOD_CONNECT },
+            { "PATCH", HTTP_METHOD_PATCH }
     };
 
     bool found = false;
@@ -131,7 +131,7 @@ static void *handle_client(void *void_arg)
 
     log_debug_handle_client_header(args);
     log_debug("Given HTTP request target: %s\n", request_target);
-    
+
     struct HttpRequestHeaderFields fields;
     fields.len = 0;
     fields.cap = initial_header_fields_capacity;
@@ -167,17 +167,80 @@ static void *handle_client(void *void_arg)
         log_debug_handle_client_header(args);
         log_debug("%d Header field name: %s\n", pos, header_field_name);
         log_debug("%d Header field value: %s\n", pos, header_field_value);
-        
+
         ++pos;
     }
 
     request.fields = fields;
+    struct SendAllResult send_all_result;
 
-    if (strcmp(request.target, "/") == 0) {
-        FILE *fp = fopen("/home/polaris/project/c_webserver/contents/index.html", "r");
+    if (str_starts_with(request.target, "/")) {
+        long file_size;
+        char *file_content;
+        const char *basic_path = "/home/polaris/project/c_webserver/contents";
+        char *file_name = malloc(strlen(basic_path) + strlen(request_target) + 1);
+        strcpy(file_name, basic_path);
+        strcat(file_name, request_target);
+        if (file_name[strlen(file_name) - 1] == '/') {
+            const char *root = "index.html";
+            file_name = realloc(file_name, strlen(file_name) + strlen(root));
+            strcat(file_name, root);
+        }
 
+        FILE *fp = fopen(file_name, "r");
         if (fp == NULL) {
-            perror("fopen()");
+            char *path_404_page = malloc(strlen(basic_path) + strlen("/404.html") + 1);
+            path_404_page = strcpy(path_404_page, basic_path);
+            strcat(path_404_page, "/404.html");
+            printf("%s\n", path_404_page);
+            fp = fopen(path_404_page, "r");
+            if(fseek(fp, 0, SEEK_END) == -1) {
+                perror("fseek()");
+                fclose(fp);
+                goto finally;
+            }
+            file_size = ftell(fp);
+
+            if (file_size == -1) {
+                perror("ftell()");
+                fclose(fp);
+                goto finally;
+            }
+
+            if (fseek(fp, 0, SEEK_SET)) {
+                perror("fseek()");
+                fclose(fp);
+                goto finally;
+            }
+            file_content = malloc(file_size);
+
+            size_t n = fread(file_content, 1, file_size, fp);
+
+            if (n != file_size) {
+                log_debug_handle_client_header(args);
+                log_debug("Error while reading the file: n != file_size\n");
+                fclose(fp);
+                goto finally;
+            }
+
+            fclose(fp);
+
+            char *bad_request_404 = "HTTP/1.1 404 Not Found\r\n\r\n";
+
+            send_all_result = send_all(sock, bad_request_404, strlen(bad_request_404), 0);
+
+            if (!send_all_result.success) {
+                perror("send_all()");
+                goto finally;
+            }
+
+            send_all_result = send_all(sock, file_content, file_size, 0);
+
+            if (!send_all_result.success) {
+                perror("send_all()");
+                goto finally;
+            }
+
             goto finally;
         }
 
@@ -187,12 +250,12 @@ static void *handle_client(void *void_arg)
             goto finally;
         }
 
-        long file_size = ftell(fp);
+        file_size = ftell(fp);
 
         if (file_size == -1) {
             perror("ftell()");
             fclose(fp);
-            goto finally; 
+            goto finally;
         }
 
         if (fseek(fp, 0, SEEK_SET)) {
@@ -201,7 +264,7 @@ static void *handle_client(void *void_arg)
             goto finally;
         }
 
-        char *file_content = malloc(file_size);
+        file_content = malloc(file_size);
         size_t n = fread(file_content, 1, file_size, fp);
 
         if (n != file_size) {
@@ -210,68 +273,11 @@ static void *handle_client(void *void_arg)
             fclose(fp);
             goto finally;
         }
-    
+
         fclose(fp);
-        
+
         char *http_response_first = "HTTP/1.1 200 OK\r\nContent-type: text/html\r\n\r\n";
 
-        struct SendAllResult send_all_result;
-        send_all_result = send_all(sock, http_response_first, strlen(http_response_first), 0);
-
-        if (!send_all_result.success) {
-            perror("send_all()");
-            goto finally;
-        }
-
-        send_all_result = send_all(sock, file_content, file_size, 0);
-
-        if (!send_all_result.success) {
-            perror("send_all()");
-            goto finally;
-        }
-
-    } else if (strcmp(request.target, "/taeyeon.jpg") == 0) {
-        FILE *fp = fopen("/home/polaris/project/c_webserver/contents/taeyeon.jpg", "r");
-        if (fp == NULL) {
-            perror("fopen()2");
-            goto finally;
-        }
-
-        if(fseek(fp, 0, SEEK_END) == -1) {
-            perror("fseek()");
-            fclose(fp);
-            goto finally;
-        }
-
-        long file_size = ftell(fp);
-
-        if (file_size == -1) {
-            perror("ftell()");
-            fclose(fp);
-            goto finally; 
-        }
-
-        if (fseek(fp, 0, SEEK_SET)) {
-            perror("fseek()");
-            fclose(fp);
-            goto finally;
-        }
-
-        char *file_content = malloc(file_size);
-        size_t n = fread(file_content, 1, file_size, fp);
-
-        if (n != file_size) {
-            log_debug_handle_client_header(args);
-            log_debug("Error while reading the file: n != file_size\n");
-            fclose(fp);
-            goto finally;
-        }
-    
-        fclose(fp);
-        
-        char *http_response_first = "HTTP/1.1 200 OK\r\nContent-type: image/jpeg\r\n\r\n";
-
-        struct SendAllResult send_all_result;
         send_all_result = send_all(sock, http_response_first, strlen(http_response_first), 0);
 
         if (!send_all_result.success) {
@@ -287,9 +293,7 @@ static void *handle_client(void *void_arg)
         }
     }
 
-    
-    
-finally:
+    finally:
     close(sock);
     pthread_exit((void *)0);
     free(void_arg);
@@ -327,7 +331,7 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    
+
     while (!server_stopped) {
         struct sockaddr_in client_addr;
         socklen_t client_addr_len = sizeof(client_addr);
