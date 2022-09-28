@@ -177,7 +177,7 @@ static void *handle_client(void *void_arg)
     if (str_starts_with(request.target, "/")) {
         long file_size;
         char *file_content;
-        const char *basic_path = "/home/polaris/project/c_webserver/contents";
+        const char *basic_path = "contents";
         char *file_name = malloc(strlen(basic_path) + strlen(request_target) + 1);
         strcpy(file_name, basic_path);
         strcat(file_name, request_target);
